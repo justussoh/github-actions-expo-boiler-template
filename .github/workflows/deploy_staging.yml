@@ -1,0 +1,54 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12.x
+      - name: Cache Node Modules
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-node-modules
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-	
+            ${{ runner.os }}-build-	
+            ${{ runner.os }}-
+      - name: Install Packages
+        run: npm install
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit
+      - name: Check Lint
+        run: npm run lint
+      - name: Test
+        run: npm run test
+  deploy_staging:
+    name: Deploy to Staging
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12.x
+      - uses: expo/expo-github-action@v5
+        with:
+          expo-packager: npm
+          expo-username: ${{ secrets.EXPO_CLI_USERNAME }}
+          expo-password: ${{ secrets.EXPO_CLI_PASSWORD }}
+          expo-cache: true
+      - name: Install Packages
+        run: npm install
+      - name: Expo Publish Channel
+        run: expo publish --non-interactive --release-channel staging
