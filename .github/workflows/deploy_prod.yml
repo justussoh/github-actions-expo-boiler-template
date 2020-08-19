@@ -1,0 +1,124 @@
+name: Create Release
+on:
+  push:
+    tags:
+      - "prod-[1-9]+.[0-9]+.[0-9]+" # Push events to matching prod-*, i.e.prod-20.15.10
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12.x
+      - name: Install Packages
+        run: npm install
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit
+      - name: Check Lint
+        run: npm run lint
+      - name: Test
+        run: npm run test
+  deploy_prod:
+    name: Deploy To Production
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      releaseChannel: ${{ steps.releaseChannel.outputs.releaseChannel }}
+      latestBinaryVersion: ${{ steps.latestBinaryVersion.outputs.version }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Fetch Tags
+        run: |
+          git fetch --prune --unshallow --tags -f
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12.x
+      - uses: expo/expo-github-action@v5
+        with:
+          expo-packager: npm
+          expo-username: ${{ secrets.EXPO_CLI_USERNAME }}
+          expo-password: ${{ secrets.EXPO_CLI_PASSWORD }}
+          expo-cache: true
+      - uses: rlespinasse/github-slug-action@v2.x
+      - name: Generate Release Channel # Release Channels are named prod-<Major Release>, i.e. prod-1, prod-3
+        id: releaseChannel
+        run: |
+          RELEASE_CHANNEL=$(echo ${{ env.GITHUB_REF_SLUG }} | sed -r 's/\.[0-9]+\.[0-9]+$//')
+          echo "::set-output name=releaseChannel::$RELEASE_CHANNEL"
+      - name: Install Packages
+        run: npm install
+      - name: Get Latest Binary Version # Binary Version will be x.x.x based on the latest tag
+        id: latestBinaryVersion
+        run: |
+          # Release tag finds the lastest tag in the tree branch - i.e. prod-x.x.x
+          RELEASE_TAG=$(echo $(git describe --tags --abbrev=0))
+          # Using param substitution, we output x.x.x instead
+          echo "::set-output name=version::${RELEASE_TAG#*-}"
+      - name: Echo Version Details
+        run: |
+          echo Build number is $GITHUB_RUN_NUMBER
+          echo Latest release is ${{ steps.latestBinaryVersion.outputs.version }}
+      - name: Expo Publish Channel
+        run: expo publish --non-interactive --release-channel=${{ steps.releaseChannel.outputs.releaseChannel }}
+  create_release:
+    name: Create Release
+    needs: deploy_prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: rlespinasse/github-slug-action@v2.x
+      - name: Generate Changelog
+        id: changelog
+        uses: metcalfc/changelog-generator@v0.4.0
+        with:
+          myToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Creating Release
+        uses: ncipollo/release-action@v1
+        with:
+          body: |
+            Changes in this Release: 
+            ${{ steps.changelog.outputs.changelog }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: Release ${{ env.GITHUB_REF_SLUG }}
+          allowUpdates: true
+  build_android:
+    needs: [deploy_prod, create_release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: rlespinasse/github-slug-action@v2.x
+      - uses: expo/expo-github-action@v5
+        with:
+          expo-packager: npm
+          expo-username: ${{ secrets.EXPO_CLI_USERNAME }}
+          expo-password: ${{ secrets.EXPO_CLI_PASSWORD }}
+          expo-cache: true
+      - name: Install Packages
+        run: npm install
+      - name: Build Android Release
+        env:
+          APP_BUILD_VERSION: ${{ github.run_number }}
+          APP_BINARY_VERSION: ${{ needs.deploy_prod.outputs.latestBinaryVersion }}
+        run: |
+          expo build:android --release-channel=${{ needs.deploy_prod.outputs.releaseChannel }} > buildLogAndroid.txt
+          cat buildLogAndroid.txt
+      - name: Parse Asset URL
+        id: androidUrl
+        run: |
+          ASSET_URL=$(cat buildLogAndroid.txt | tail | egrep -o 'https?://expo\.io/artifacts/[^ ]+')
+          echo The android url is $ASSET_URL
+          echo "::set-output name=assetUrl::$ASSET_URL"
+      - name: Download APK Asset
+        run: wget -O example-${{ env.GITHUB_REF_SLUG }}.apk ${{ steps.androidUrl.outputs.assetUrl }}
+      - name: Upload Release Asset
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./example-${{ env.GITHUB_REF_SLUG }}.apk
+          asset_name: example-${{ env.GITHUB_REF_SLUG }}.apk
+          tag: ${{ github.ref }}
