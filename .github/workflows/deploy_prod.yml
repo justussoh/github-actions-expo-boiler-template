@@ -41,8 +41,8 @@ jobs:
       - uses: expo/expo-github-action@v5
         with:
           expo-packager: npm
-          expo-username: ${{ secrets.EXPO_CLI_PROD_USERNAME }}
-          expo-password: ${{ secrets.EXPO_CLI_PROD_PASSWORD }}
+          expo-username: ${{ secrets.EXPO_CLI_USERNAME }}
+          expo-password: ${{ secrets.EXPO_CLI_PASSWORD }}
           expo-cache: true
       - uses: rlespinasse/github-slug-action@v2.x
       - name: Generate Release Channel # Release Channels are named prod-<Major Release>, i.e. prod-1, prod-3
