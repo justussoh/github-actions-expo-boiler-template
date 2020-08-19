@@ -13,9 +13,10 @@
     "updates": {
       "fallbackToCacheTimeout": 0
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "me.jszh.expo.example"
+    },
     "ios": {
       "supportsTablet": true
     },
